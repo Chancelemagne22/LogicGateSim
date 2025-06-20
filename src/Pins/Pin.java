@@ -13,16 +13,18 @@ public class Pin {
         this.parentGate = parent;
         this.relativeX = rx;
         this.relativeY = ry;
-        System.out.println(parent.getPinX()+rx);
     }
 
-
-    public int getPinX() {
-        return (int) (parentGate.getPinX());
+    public Gate getParentGate() {
+        return parentGate;
     }
 
-    public int getPinY() {
-        return (int) (parentGate.getPinY());
+    public float getPinX() {
+        return parentGate.x + relativeX;
+    }
+
+    public float getPinY() {
+        return parentGate.y + relativeY;
     }
 
     public void setRelativeX(float relativeX) {
@@ -38,7 +40,13 @@ public class Pin {
         p.fill(value ? p.color(0,255,0): p.color(255,0,0));
         p.ellipse(getPinX(),getPinY(),size,size);
     }
+    
     public boolean isMouseOver(int mx, int my) {
-        return PApplet.dist(mx, my, getPinX(), getPinY()) < size / 2f;
+        return PApplet.dist(mx, my, getPinX(), getPinY()) < size;
+    }
+    
+    public boolean isMouseOver(float mx, float my) {
+        return PApplet.dist(mx, my, getPinX(), getPinY()) < size;
     }
 }
+
