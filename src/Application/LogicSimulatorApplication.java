@@ -5,9 +5,10 @@ import Gates.And;
 import Gates.BufferGate;
 import Gates.Gate;
 import Gates.Not;
+import Gates.InputGate;
+import Gates.OutputGate;
 import Pins.Pin;
 import Wire.Wire;
-
 
 import processing.core.PApplet;
 import controlP5.*;
@@ -20,17 +21,16 @@ enum State{
     isIdle,
     isDrawing,
     isDragging,
-    isStopping;
+    isStopping
 }
 
 public class LogicSimulatorApplication extends PApplet {
     public static void main(String[] args) {
         PApplet.main("Application.LogicSimulatorApplication");
-
     }
+    
     List<Gate> gates = new ArrayList<>();
     List<Wire> wires = new ArrayList<>();
-    Wire connectingWire = null;
     Wire wireIn, wireOut;
     State currentState = State.isIdle;
 
@@ -44,9 +44,18 @@ public class LogicSimulatorApplication extends PApplet {
     int SCREEN_WIDTH = 1280;
     int SCREEN_HEIGHT = 720;
 
+    // Mouse handling variables
+    Wire activeWire = null;
+    Pin startPin = null;
+    Gate selectedGate = null;
+    Gate draggingGate = null;
+    boolean isConnecting = false;
+    int gateCount = 0;
+
     public void settings(){
-        size(SCREEN_WIDTH  ,SCREEN_HEIGHT);
+        size(SCREEN_WIDTH, SCREEN_HEIGHT);
     }
+    
     public void setup(){
         surface.setTitle("Logic Gate Simulator");
         GuiButton();
@@ -61,50 +70,62 @@ public class LogicSimulatorApplication extends PApplet {
         drawGrid();
         drawGui();
 
+        // Propagate values through wires
+        for (Wire wire : wires) {
+            wire.propagateValue();
+        }
+
+        // Evaluate all gates
+        for (Gate gate : gates) {
+            gate.evaluate();
+        }
+
         for(Gate gate: gates){
             gate.draw(this,gate == selectedGate);
         }
         for(Wire wire: wires){
             wire.draw(this);
         }
-        if (connectingWire != null) {
-            connectingWire.draw(this);
+        if (activeWire != null) {
+            activeWire.draw(this);
         }
 
 
 
     }
 
-
-//    GUI
+    //GUI
     void drawGui(){
         drawHeader();
         drawSetting();
         drawInputBar();
         drawOutputBar();
-
     }
+    
     void drawHeader(){
         noStroke();
         fill(color(31,25,54));
         rect(0,0,SCREEN_WIDTH+10, 100);
     }
+    
     void drawSetting(){
         noStroke();
         fill(color(58,57,57));
         rect(0,0, 100, 100);
     }
+    
     void drawInputBar(){
         wireIn = new Wire(30,120,30,700);
         wireIn.customColor(61, 0, 4);
         wireIn.draw(this);
-
     }
+    
     void drawOutputBar(){
         wireOut = new Wire(1200,120,1200,700);
         wireOut.customColor(36, 34, 34);
         wireOut.draw(this);
     }
+    
     void drawGrid(){
         this.stroke(230);
         strokeWeight(2);
@@ -128,13 +149,13 @@ public class LogicSimulatorApplication extends PApplet {
     }
 
     public void GuiButton(){
-        PFont font  = createFont("Arial",20);
         //        GUI USING CONTROL P5
         cp5 = new ControlP5(this);
 //        cp5.addButton("switchButton")
-//                .setPosition(100 ,20)
-//                .setSize(80,30)
-//                .setLabel("On/Off");
+//                .setColorBackground(color(135,216,167))
+//                .setPosition(30,30)
+//                .setSize(100,40)
+//                .setLabel("Switch");
 
         cp5.addButton("addNewBuffer")
                 .setColorBackground(color(135,216,167))
@@ -147,178 +168,211 @@ public class LogicSimulatorApplication extends PApplet {
                 .setPosition(260,30)
                 .setSize(100,40)
                 .setLabel("NOT");
+                
         cp5.addButton("addNewAnd")
                 .setColorBackground(color(135,216,167))
                 .setPosition(420,30)
                 .setSize(100,40)
                 .setLabel("AND");
+        cp5.addButton("addNewInput")
+                .setColorBackground(color(135,216,167))
+                .setPosition(580,30)
+                .setSize(100,40)
+                .setLabel("Input");
+        cp5.addButton("addNewOutput")
+                .setColorBackground(color(135,216,167))
+                .setPosition(740,30)
+                .setSize(100,40)
+                .setLabel("Output");     
     }
+    
     public void switchButton(){
-
         gates.get(0).inputs.get(0).value = !gates.get(0).inputs.get(0).value;
         gates.get(0).outputs.get(0).value = gates.get(0).inputs.get(0).value;
     }
-    int gateCount = 0;
+    
     public void addNewBuffer(){
         int layer = gateCount * 10;
         gates.add(new BufferGate(100, 100 + layer));
         gateCount = gates.size();
-
     }
+    
     public void addNewNot(){
         int layer = gateCount * 10;
         gates.add(new Not(100, 100 + layer));
         gateCount = gates.size();
     }
+    
     public void addNewAnd(){
         int layer = gateCount * 10;
         gates.add(new And(100, 100 + layer));
         gateCount = gates.size();
 
     }
-    public void addWire(List<Integer> wirePoints){
-        connectingWire = new Wire(wirePoints);
-        activeWire = connectingWire; // save the active wire
-        wires.add(connectingWire);
-        System.out.println(wires);
+    public void addNewInput() {
+        int layer = gateCount * 10;
+        gates.add(new InputGate(100, 100 + layer));
+        gateCount = gates.size();
     }
-    //    DRAGGING MECHANICS
+    public void addNewOutput() {
+        int layer = gateCount * 10;
+        gates.add(new OutputGate(100, 100 + layer));
+        gateCount = gates.size();
+    }
 
-    Gate draggingGate = null;
-    List <Integer> wirePoints = new ArrayList<>();
-    boolean clickInPin = false;
     public void mouseMoved(){
-
-        if(currentState == State.isDrawing && activeWire != null){
-            for(Wire wire:wires){
-                if(wire == activeWire){
-                    wire.setPoints(wire.getPointX1(), wire.getPointY1(), mouseX, mouseY);
-                    System.out.println("Moving: " + wire);
-                }
-            }
+        if (isConnecting && activeWire != null) {
+            activeWire.setPoints(activeWire.getPointX1(), activeWire.getPointY1(), mouseX, mouseY);
         }
-
     }
-    Wire activeWire = null;
-    Gate selectedGate = null;
-    Gate activeGate = null;
+
     public void mousePressed() {
-
-        currentState = State.isDrawing;
-        for (Gate gate : gates) { // Loops to all gate
-
-            System.out.println(gate.getGateId());
-            for(Wire wire: wires){ // Loops to all existing wire
-                if(wire.isMouseOver(mouseX,mouseY)){
-                    System.out.println("In wire: " + wire);
-                }
-                System.out.println("Checking Wire:"+ wire);
-
-                if(gate.isMouseOver(mouseX, mouseY)){ // Check if mouse is in a gate
-                    selectedGate = gate;
-                    activeGate = gate;
-                    System.out.println("Selected Gate: "+ selectedGate.getGateId());
-                }
-
-                if(wireIn.isMouseOver(mouseX,mouseY)){ // Checking if the mouse is in the Wire In
-                    System.out.println("Update the location ");
-                    currentState = State.isStopping;
-                    if(activeWire == wire){
-                        wire.setPoints(wire.getPointX1(), wire.getPointY1(), mouseX, mouseY); // Will set the wire location.
-                    }
-
-                    System.out.println("Inside wore-In wire");
-                }else{
-                    System.out.println("Outside woreIn wire");
-                }
-            }
-
-            System.out.println("Checking current state:" + currentState);
-
-            // Will create the wire
-            for (Pin pin : gate.inputs) {
-                if (pin.isMouseOver(mouseX, mouseY)) {
-                    currentState= State.isDrawing;
-                    System.out.println("Mouse Pressed in Pin");
-                    wirePoints = new ArrayList<>();
-                    wirePoints.add(pin.getPinX());
-                    wirePoints.add(pin.getPinY());
-                    wirePoints.add(mouseX);
-                    wirePoints.add(mouseY);
-                    addWire(wirePoints);
-                    wirePoints.clear();
-//                  Adding wires
-
-                    println("Clicked input pin: " + pin + " " + gate.getGateId());
-                    pin.value = !pin.value;
-                    gate.evaluate();
-                    return;
-                }
-            }
-
-//            for (Pin pin : gate.outputs) {
-//                if (pin.isMouseOver(mouseX, mouseY) && draggingGate != null) {
-//                    System.out.println("Changes: " + draggingGate.getPinX() +":" + draggingGate.getPinY());
-//                    wirePoints.set(0, (int)draggingGate.getPinX());
-//                    wirePoints.set(1, (int)draggingGate.getPinY());
-//                }
-//            }
-        }
-
-
-
-
-        // Right-click deletion
+        // Reset connection if right click
         if (mouseButton == RIGHT) {
-            for (int i = gates.size() - 1; i >= 0; i--) {
-                Gate gate = gates.get(i);
-                if (gate.isMouseOver(mouseX, mouseY)) {
-                    gates.remove(i);
-                    return;
-                }
+            if (activeWire != null) {
+                activeWire = null;
+                startPin = null;
+                isConnecting = false;
+                currentState = State.isIdle;
+                return;
             }
-        }
-
-        // Dragging
-        if (mouseButton == LEFT) {
-            currentState = State.isDragging;
+            
+            // Delete gates and connected wires on right click
+            Gate foundGateToRemove = null;
             for (Gate gate : gates) {
                 if (gate.isMouseOver(mouseX, mouseY)) {
-                    draggingGate = gate;
-                    gate.startDragging(mouseX, mouseY);
+                    foundGateToRemove = gate;
                     break;
                 }
             }
-        }
-        if(currentState == State.isIdle){
-            activeWire = null;
-        }
-    }
-    public void mouseDragged() {
 
-        if (draggingGate != null) {
-            draggingGate.dragTo(mouseX, mouseY);
-            if(currentState == State.isDragging && activeWire != null){
-                for(Wire wire:wires){
-                    if(wires.indexOf(wire) == gates.indexOf(activeGate)){
-                        wire.setPoints(draggingGate.getPinX(),draggingGate.getPinY(),  wire.getPointX2(), wire.getPointY2());
+            if (foundGateToRemove != null) {
+                final Gate gateToRemove = foundGateToRemove;
+                // Remove wires connected to the gate
+                wires.removeIf(wire -> (wire.getStartPin() != null && wire.getStartPin().getParentGate() == gateToRemove) ||
+                                        (wire.getEndPin() != null && wire.getEndPin().getParentGate() == gateToRemove));
+                
+                // Remove the gate
+                gates.remove(gateToRemove);
+                return;
+            }
+            return;
+        }
+
+        // Handle pin connections on left click
+        if (mouseButton == LEFT) {
+            // Check all gates for pin clicks
+            for (Gate gate : gates) {
+                // Check output pins first (start connections from outputs)
+                for (Pin pin : gate.outputs) {
+                    if (pin.isMouseOver(mouseX, mouseY)) {
+                        if (!isConnecting) {
+                            // Start new connection from output pin
+                            startPin = pin;
+                            activeWire = new Wire(pin.getPinX(), pin.getPinY(), mouseX, mouseY);
+                            activeWire.customColor(0, 255, 0);
+                            isConnecting = true;
+                            currentState = State.isDrawing;
+                            println("Started connection from output pin");
+                            return;
+                        }
                     }
-//                    if(wire == activeWire){
-//                        wire.setPoints(draggingGate.getPinX(),draggingGate.getPinY(),  wire.getPointX2(), wire.getPointY2());
-//                    }
+                }
+                
+                // Check input pins (end connections at inputs)
+                for (Pin pin : gate.inputs) {
+                    if (pin.isMouseOver(mouseX, mouseY)) {
+                        if (isConnecting && activeWire != null && startPin != null) {
+                            // Complete connection to input pin
+                            activeWire.connectPins(startPin, pin);
+                            activeWire.customColor(255, 255, 0);
+                            wires.add(activeWire);
+                            
+                            // Reset connection state
+                            activeWire = null;
+                            startPin = null;
+                            isConnecting = false;
+                            currentState = State.isIdle;
+                            println("Completed connection to input pin");
+                            return;
+                        } else if (!isConnecting) {
+                            // Toggle pin value if not connecting
+                            pin.value = !pin.value;
+                            gate.evaluate();
+                            return;
+                        }
+                    }
                 }
             }
-//
+
+            // If clicking on empty space while connecting, cancel connection
+            if (isConnecting) {
+                activeWire = null;
+                startPin = null;
+                isConnecting = false;
+                currentState = State.isIdle;
+                return;
+            }
+
+            // Handle gate dragging if not connecting
+            if (!isConnecting) {
+                for (Gate gate : gates) {
+                    if (gate.isMouseOver(mouseX, mouseY)) {
+                        draggingGate = gate;
+                        selectedGate = gate;
+                        gate.startDragging(mouseX, mouseY);
+                        // Defer setting state to isDragging to distinguish a click from a drag.
+                        // currentState = State.isDragging;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    public void mouseDragged() {
+        if (draggingGate != null) {
+            currentState = State.isDragging;
+            draggingGate.dragTo(mouseX, mouseY);
         }
     }
 
     public void mouseReleased() {
+        if (draggingGate != null) {
+            if (currentState != State.isDragging) { // This was a click, not a drag
+                if (draggingGate instanceof InputGate) {
+                    ((InputGate) draggingGate).toggleState();
+                }
+            }
+            draggingGate.stopDragging();
+            draggingGate = null;
+        }
+        if (currentState == State.isDragging) {
+            currentState = State.isIdle;
+        }
+    }
+
+
+    public void keyPressed() {
         currentState = State.isIdle;
         if (draggingGate != null) {
             draggingGate.stopDragging();
             draggingGate = null;
         }
+    
+
+
+
+        if (currentState == State.isDragging) {
+            currentState = State.isIdle;
+        }
     }
+
+
+
+    
+
+
 
 
 }
